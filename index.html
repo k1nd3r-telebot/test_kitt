@@ -1,0 +1,511 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Kitting Dashboard</title>
+
+<style>
+body {
+    font-family: Arial, sans-serif;
+    margin: 0;
+    background: #f5f5f5;
+}
+
+header {
+    background: #1f2937;
+    padding: 15px;
+    display: flex;
+    justify-content: space-between;
+    color: white;
+}
+
+button {
+    padding: 10px 15px;
+    margin-left: 10px;
+    cursor: pointer;
+    border: none;
+    border-radius: 6px;
+    font-weight: bold;
+}
+
+.btn-blue { background: #3b82f6; color: white; }
+.btn-green { background: #22c55e; color: white; }
+.btn-secondary { background: #6b7280; color: white; }
+
+.container {
+    padding: 20px;
+}
+
+input {
+    padding: 10px;
+    width: 300px;
+    margin-bottom: 15px;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    display: block;
+}
+
+table {
+    width: 100%;
+    border-collapse: collapse;
+    background: white;
+}
+
+th, td {
+    padding: 10px;
+    border: 1px solid #ddd;
+    text-align: left;
+}
+
+th {
+    background: #f3f4f6;
+}
+
+.modal {
+    display: none;
+    position: fixed;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    background: rgba(0,0,0,0.5);
+    z-index: 1000;
+}
+
+.modal-content {
+    background: white;
+    padding: 20px;
+    width: 450px;
+    margin: 10% auto;
+    border-radius: 10px;
+    box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+}
+
+.close {
+    float: right;
+    cursor: pointer;
+    font-size: 20px;
+    font-weight: bold;
+}
+
+/* Zone de mesaje pentru rezultat kitting */
+.result-box {
+    margin-top: 15px;
+    padding: 15px;
+    border-radius: 6px;
+    display: none;
+}
+.result-success {
+    background: #dcfce7;
+    border: 1px solid #22c55e;
+    color: #14532d;
+}
+.result-failed {
+    background: #fee2e2;
+    border: 1px solid #ef4444;
+    color: #7f1d1d;
+}
+
+.missing-list {
+    margin-top: 5px;
+    padding-left: 20px;
+}
+
+.action-area {
+    margin-top: 15px;
+    display: flex;
+    justify-content: flex-end;
+}
+</style>
+</head>
+
+<body>
+
+<header>
+    <div>Kitting System</div>
+    <div>
+        <button class="btn-blue" onclick="openScan()">Scaneaza in P0</button>
+        <button class="btn-green" onclick="openKit()">Kituie in P0</button>
+    </div>
+</header>
+
+<div class="container">
+
+    <input type="text" id="search" placeholder="Search part_no..." oninput="filterTable()">
+
+    <table id="warehouseTable">
+        <thead>
+            <tr>
+                <th>Location</th>
+                <th>Part No</th>
+                <th>Qty</th>
+                <th>Date</th>
+            </tr>
+        </thead>
+        <tbody></tbody>
+    </table>
+
+</div>
+
+<!-- SCAN POPUP -->
+<div id="scanModal" class="modal">
+    <div class="modal-content">
+        <span class="close" onclick="closeScan()">X</span>
+        <h3>Scan in P0</h3>
+
+        <input id="scan_location" placeholder="Location">
+        <input id="scan_part" placeholder="Part No">
+        <input id="scan_qty" type="number" placeholder="Qty">
+
+        <div class="action-area">
+            <button class="btn-secondary" onclick="closeScan()">Anuleaza</button>
+            <button class="btn-blue" onclick="scanSubmit()">Confirm</button>
+        </div>
+    </div>
+</div>
+
+<!-- KIT POPUP -->
+<div id="kitModal" class="modal">
+    <div class="modal-content">
+        <span class="close" onclick="closeKit()">X</span>
+        <h3>Kitting P0</h3>
+
+        <div id="kitInputs">
+            <input id="kit_part" placeholder="Part No">
+            <input id="kit_qty" type="number" placeholder="Qty">
+            <div class="action-area">
+                <button class="btn-secondary" onclick="closeKit()">Anuleaza</button>
+                <button class="btn-green" onclick="kitSubmit()">Confirm</button>
+            </div>
+        </div>
+
+        <!-- Caseta unde se afiseaza raspunsul din API -->
+        <div id="kitResult" class="result-box"></div>
+    </div>
+</div>
+
+<script>
+
+const API = "http://127.0.0.1:8000";
+let lastKittingData = null; // Salvam raspunsul pentru printare
+
+// =====================
+// LOAD WAREHOUSE
+// =====================
+async function loadWarehouse() {
+    try {
+        const res = await fetch(`${API}/warehouse`);
+        const data = await res.json();
+
+        const tbody = document.querySelector("#warehouseTable tbody");
+        tbody.innerHTML = "";
+
+        data.forEach(row => {
+            tbody.innerHTML += `
+            <tr>
+                <td>${row.location}</td>
+                <td>${row.part_no}</td>
+                <td>${row.qty}</td>
+                <td>${row.insert_date}</td>
+            </tr>
+            `;
+        });
+    } catch (err) {
+        console.error("Eroare la incarcarea depozitului:", err);
+    }
+}
+
+loadWarehouse();
+
+
+// =====================
+// SEARCH FILTER
+// =====================
+function filterTable() {
+    const value = document.getElementById("search").value.toLowerCase();
+    const rows = document.querySelectorAll("#warehouseTable tbody tr");
+
+    rows.forEach(r => {
+        const part = r.children[1].innerText.toLowerCase();
+        r.style.display = part.includes(value) ? "" : "none";
+    });
+}
+
+
+// =====================
+// MODALS
+// =====================
+function openScan() {
+    document.getElementById("scanModal").style.display = "block";
+}
+
+function closeScan() {
+    document.getElementById("scanModal").style.display = "none";
+    document.getElementById("scan_location").value = "";
+    document.getElementById("scan_part").value = "";
+    document.getElementById("scan_qty").value = "";
+}
+
+function openKit() {
+    document.getElementById("kitModal").style.display = "block";
+    document.getElementById("kitInputs").style.display = "block";
+    const resultBox = document.getElementById("kitResult");
+    resultBox.style.display = "none";
+    resultBox.className = "result-box";
+    resultBox.innerHTML = "";
+    lastKittingData = null;
+}
+
+function closeKit() {
+    document.getElementById("kitModal").style.display = "none";
+    document.getElementById("kit_part").value = "";
+    document.getElementById("kit_qty").value = "";
+}
+
+
+// =====================
+// SCAN SUBMIT
+// =====================
+async function scanSubmit() {
+    const payload = {
+        location: document.getElementById("scan_location").value,
+        part_no: document.getElementById("scan_part").value,
+        qty: parseInt(document.getElementById("scan_qty").value)
+    };
+
+    await fetch(`${API}/warehouse/add`, {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify(payload)
+    });
+
+    closeScan();
+    loadWarehouse();
+}
+
+
+// =====================
+// KIT SUBMIT
+// =====================
+async function kitSubmit() {
+    const part = document.getElementById("kit_part").value;
+    const qty = document.getElementById("kit_qty").value;
+
+    if (!part || !qty) {
+        alert("Introdu codul reperului si cantitatea!");
+        return;
+    }
+
+    try {
+        const res = await fetch(`${API}/kitting/create/${part}/${qty}`, {
+            method: "POST"
+        });
+        const data = await res.json();
+        
+        lastKittingData = data; // stocam datele primit de la server
+        
+        const resultBox = document.getElementById("kitResult");
+        resultBox.style.display = "block";
+        
+        if (data.status === "success") {
+            // Ascundem input-urile ca sa ramana doar rezultatul clar
+            document.getElementById("kitInputs").style.display = "none";
+            
+            resultBox.className = "result-box result-success";
+            resultBox.innerHTML = `
+                <strong>✓ Succes!</strong> Kit-ul pentru <b>${data.part_no}</b> (cantitate: ${data.qty}) a fost creat.
+                <div class="action-area">
+                    <button class="btn-blue" onclick="printPickList()">Print Label / Pick List</button>
+                    <button class="btn-secondary" onclick="closeKit()">Inchide</button>
+                </div>
+            `;
+        } else {
+            resultBox.className = "result-box result-failed";
+            
+            let missingHtml = '<ul class="missing-list">';
+            data.missing.forEach(m => {
+                missingHtml += `<li><b>${m.part_no}</b>: Necesar ${m.required} | Disponibil <span style="color:red">${m.available}</span></li>`;
+            });
+            missingHtml += '</ul>';
+
+            resultBox.innerHTML = `
+                <strong>✗ Lipsa stoc!</strong> Nu se poate realiza kit-ul.<br>
+                ${missingHtml}
+                <div class="action-area">
+                    <button class="btn-secondary" onclick="closeKit()">Inchide</button>
+                </div>
+            `;
+        }
+
+        loadWarehouse(); // Actualizam tabelul din spate
+    } catch (err) {
+        console.error(err);
+        alert("Eroare la comunicarea cu serverul.");
+    }
+}
+
+
+// =====================
+// IMPRIMARE ETICHETA / PICK LIST
+// =====================
+function printPickList() {
+    if (!lastKittingData) return;
+
+    // 1. PROCESARE PAGINA 1: ROUTING & BOM
+    const routingLines = lastKittingData.routing && lastKittingData.routing.description 
+        ? lastKittingData.routing.description.split('\n') 
+        : [];
+
+    let bomRows = '';
+    if (lastKittingData.bom && lastKittingData.bom.length > 0) {
+        lastKittingData.bom.forEach(item => {
+            bomRows += `<tr><td>${item}</td></tr>`;
+        });
+    } else {
+        bomRows = '<tr><td>Nu exista repere in BOM</td></tr>';
+    }
+
+    let routingHtml = '';
+    if (routingLines.length > 0) {
+        routingLines.forEach(line => {
+            if(line.trim() !== "") {
+                routingHtml += `<div class="routing-step">${line}</div>`;
+            }
+        });
+    } else {
+        routingHtml = '<div>Fara instructiuni de routing specifice.</div>';
+    }
+
+    // 2. PROCESARE PAGINA 2: TABELA PICKING (SORTATA DUPA LOCATIE)
+    let pickingRows = '';
+    if (lastKittingData.picking && lastKittingData.picking.length > 0) {
+        // Clonam si sortam array-ul alfabetic dupa locatie
+        const sortedPicking = [...lastKittingData.picking].sort((a, b) => 
+            a.location.localeCompare(b.location)
+        );
+
+        sortedPicking.forEach(p => {
+            pickingRows += `
+                <tr>
+                    <td style="font-weight: bold; font-size: 16px;">${p.location}</td>
+                    <td>${p.part_no}</td>
+                    <td style="text-align: center; font-weight: bold;">${p.qty_to_pick}</td>
+                </tr>
+            `;
+        });
+    } else {
+        pickingRows = '<tr><td colspan="3" style="text-align: center;">Nu exista date pentru picking.</td></tr>';
+    }
+
+    // 3. DESCHIDERE FEREASTRA PRINT
+    const printWindow = window.open('', '_blank', 'width=800,height=600');
+    
+    printWindow.document.write(`
+        <html>
+        <head>
+            <title>Pick List - ${lastKittingData.part_no}</title>
+            <style>
+                body { font-family: 'Courier New', Courier, monospace; padding: 20px; color: #000; }
+                .ticket { max-width: 600px; margin: 0 auto; border: 2px dashed #000; padding: 20px; }
+                .header { text-align: center; border-bottom: 2px solid #000; padding-bottom: 10px; margin-bottom: 15px; }
+                .header h2 { margin: 5px 0; }
+                .info-table { width: 100%; margin-bottom: 15px; }
+                .info-table td { padding: 4px 0; font-size: 16px; }
+                .section-title { font-weight: bold; text-transform: uppercase; margin-top: 20px; margin-bottom: 5px; border-bottom: 1px solid #000; }
+                .bom-table { width: 100%; border-collapse: collapse; margin-bottom: 15px; }
+                .bom-table th, .bom-table td { border: 1px solid #000; padding: 6px; }
+                .routing-step { padding: 4px 0; font-size: 14px; }
+                .footer { margin-top: 30px; text-align: center; font-size: 12px; border-top: 1px dashed #000; padding-top: 10px; }
+                
+                /* Stiluri speciale pentru pagina a doua */
+                .page-break {
+                    page-break-before: always;
+                    margin-top: 40px;
+                }
+
+                @media print {
+                    body { padding: 0; }
+                    .ticket { border: none; padding: 0; }
+                    .page-break { margin-top: 0; }
+                }
+            </style>
+        </head>
+        <body>
+            <!-- PAGINA 1: ETICHETA SI DETALII TEHNICE -->
+            <div class="ticket">
+                <div class="header">
+                    <h2>PICK LIST / KITTING LABEL</h2>
+                    <div>Data generarii: ${new Date().toLocaleString()}</div>
+                </div>
+
+                <table class="info-table">
+                    <tr><td><strong>REPER PRINCIPAL (Part No):</strong></td><td style="font-size: 20px; font-weight: bold;">${lastKittingData.part_no}</td></tr>
+                    <tr><td><strong>CANTITATE REALIZATA (Qty):</strong></td><td style="font-size: 20px; font-weight: bold;">${lastKittingData.qty}</td></tr>
+                </table>
+
+                <div class="section-title">Structura Componente (BOM)</div>
+                <table class="bom-table" style="width: 100%;">
+                    <thead>
+                        <tr><th style="text-align: left;">Cod Reper Componenta</th></tr>
+                    </thead>
+                    <tbody>
+                        ${bomRows}
+                    </tbody>
+                </table>
+
+                <div class="section-title">Flux Tehnologic (Routing)</div>
+                <div style="background: #f9f9f9; padding: 10px; border: 1px solid #000;">
+                    ${routingHtml}
+                </div>
+
+                <div class="footer">
+                    Sistem Kitting P0 - Pagina 1
+                </div>
+            </div>
+
+            <!-- PAGINA 2: TABELA DE PICKING DIN DEPOZIT -->
+            <div class="ticket page-break">
+                <div class="header">
+                    <h2>FOAIE ALOCARE STOC (PICKING LIST)</h2>
+                    <div>Ordine optimizata dupa locatie magazie</div>
+                </div>
+
+                <table class="info-table">
+                    <tr><td><strong>Pentru Kit Reper:</strong></td><td style="font-weight: bold;">${lastKittingData.part_no}</td></tr>
+                    <tr><td><strong>Cantitate Totala:</strong></td><td style="font-weight: bold;">${lastKittingData.qty}</td></tr>
+                </table>
+
+                <div class="section-title">Traseu Colectare Repere</div>
+                <table class="bom-table" style="width: 100%;">
+                    <thead>
+                        <tr style="background-color: #f2f2f2;">
+                            <th style="text-align: left; width: 35%;">Locatie</th>
+                            <th style="text-align: left; width: 45%;">PN_int (Part No)</th>
+                            <th style="text-align: center; width: 20%;">Qty</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${pickingRows}
+                    </tbody>
+                </table>
+
+                <div class="footer">
+                    Sistem Kitting P0 - Pagina 2 (Magazie)
+                </div>
+            </div>
+
+            <script>
+                window.onload = function() {
+                    window.print();
+                    setTimeout(function() { window.close(); }, 500);
+                }
+            <\/script>
+        </body>
+        </html>
+    `);
+    
+    printWindow.document.close();
+}
+
+</script>
+
+</body>
+</html>
